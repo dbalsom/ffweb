@@ -1,6 +1,7 @@
 [build]
 release = true
 filehash = false
+no_sri = true
 
 [serve]
 open = true
