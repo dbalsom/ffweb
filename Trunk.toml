@@ -1,1 +1,8 @@
 [build]
+release = true
+filehash = false
+
+[serve]
+open = true
+no_autoreload = false
+
