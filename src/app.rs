@@ -1,13 +1,38 @@
-use std::cell::RefCell;
-use std::rc::Rc;
-use std::sync::{Arc, Mutex};
+/*
+    FluxFox
+    https://github.com/dbalsom/fluxfox
 
-use wasm_bindgen_futures::spawn_local;
+    Copyright 2024 Daniel Balsom
 
+    Permission is hereby granted, free of charge, to any person obtaining a
+    copy of this software and associated documentation files (the “Software”),
+    to deal in the Software without restriction, including without limitation
+    the rights to use, copy, modify, merge, publish, distribute, sublicense,
+    and/or sell copies of the Software, and to permit persons to whom the
+    Software is furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in
+    all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+    FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+    DEALINGS IN THE SOFTWARE.
+
+    --------------------------------------------------------------------------
+*/
+
+use std::default::Default;
+use std::sync::{Arc};
 use std::sync::mpsc;
+use fluxfox::{DiskImage, DiskImageError, LoadingStatus};
 
-use fluxfox::{DiskCh, DiskImage, DiskImageError, LoadingStatus};
 use crate::worker;
+use crate::util;
+use crate::viz::VisualizationState;
 
 #[derive (Default)]
 pub enum ThreadLoadStatus {
@@ -27,39 +52,35 @@ enum RunMode {
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
-pub struct TemplateApp {
-    // Example stuff:
+#[derive(Default)]
+pub struct PersistentState {
     label: String,
-
-    #[serde(skip)]
-    run_mode: RunMode,
-    #[serde(skip)] // This how you opt out of serialization of a field
-    value: f32,
-    #[serde(skip)]
-    ctx_init: bool,
-    #[serde(skip)]
-    dropped_files: Vec<egui::DroppedFile>,
-    #[serde(skip)]
-    load_status: ThreadLoadStatus,
-    #[serde(skip)]
-    load_sender: Option<mpsc::SyncSender<ThreadLoadStatus>>,
-    #[serde(skip)]
-    load_receiver: Option<mpsc::Receiver<ThreadLoadStatus>>,
-    #[serde(skip)]
-    disk_image_name: Option<String>,
-    #[serde(skip)]
-    disk_image: Option<DiskImage>,
 }
 
-impl Default for TemplateApp {
+pub struct App {
+    p_state: PersistentState,
+    run_mode: RunMode,
+    ctx_init: bool,
+    dropped_files: Vec<egui::DroppedFile>,
+    load_status: ThreadLoadStatus,
+    load_sender: Option<mpsc::SyncSender<ThreadLoadStatus>>,
+    load_receiver: Option<mpsc::Receiver<ThreadLoadStatus>>,
+    disk_image_name: Option<String>,
+    pub(crate) disk_image: Option<DiskImage>,
+
+    pub(crate) viz_state: VisualizationState,
+}
+
+impl Default for App {
     fn default() -> Self {
 
         let (load_sender, load_receiver) = mpsc::sync_channel(128);
         Self {
             // Example stuff:
-            label: "Hello World!".to_owned(),
+            p_state: PersistentState {
+                label: "Hello World!".to_owned(),
+            },
             run_mode: RunMode::Reactive,
-            value: 2.7,
             ctx_init: false,
             dropped_files: Vec::new(),
 
@@ -69,24 +90,29 @@ impl Default for TemplateApp {
 
             disk_image_name: None,
             disk_image: None,
+
+            viz_state: VisualizationState::default(),
         }
     }
 }
 
-impl TemplateApp {
+impl App {
     /// Called once before the first frame.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         // This is also where you can customize the look and feel of egui using
         // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
 
-        let mut app_state = Default::default();
+        let mut app_state = App::default();
 
         // Load previous app state (if any).
         // Note that you must enable the `persistence` feature for this to work.
         if let Some(storage) = cc.storage {
-            app_state = eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
+            app_state.p_state = eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
         }
 
+        app_state.viz_state = VisualizationState::new(cc.egui_ctx.clone(), 512);
+
+        egui_extras::install_image_loaders(&cc.egui_ctx);
         // Set dark mode. This doesn't seem to work for some reason.
         // So we'll use a flag in state and do it on the first update().
         //cc.egui_ctx.set_visuals(egui::Visuals::dark());
@@ -95,7 +121,7 @@ impl TemplateApp {
     }
 }
 
-impl eframe::App for TemplateApp {
+impl eframe::App for App {
     /// Called each time the UI needs repainting, which may be many times per second.
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Put your widgets into a `SidePanel`, `TopBottomPanel`, `CentralPanel`, `Window` or `Area`.
@@ -135,6 +161,14 @@ impl eframe::App for TemplateApp {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             // The central panel the region left after adding TopPanel's and SidePanel's
+
+            let url = util::construct_full_url("./assets/fluxfox_logo.png");
+            ui.add(
+                egui::Image::new(url).fit_to_original_size(1.0)
+            );
+
+
+
             ui.heading("Welcome to fluxfox-web!");
 
             ui.horizontal(|ui| {
@@ -149,39 +183,33 @@ impl eframe::App for TemplateApp {
             self.handle_image_info(ui);
             self.handle_load_messages(ctx);
 
+            self.viz_state.show(ui);
+
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                 egui::warn_if_debug_build(ui);
             });
         });
     }
 
-    /// Called by the framework to save state before shutdown.
+    /// Called by the framework to save persistent state before shutdown.
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        eframe::set_value(storage, eframe::APP_KEY, self);
+        eframe::set_value(storage, eframe::APP_KEY, &self.p_state);
     }
 }
 
-impl TemplateApp {
+impl App {
 
     /// Initialize the egui context, for visuals, etc.
     /// Tried doing this in new() but it didn't take effect.
     pub fn ctx_init(&mut self, ctx: &egui::Context) {
         ctx.set_visuals(egui::Visuals::dark());
+
         self.ctx_init = true;
     }
 
     // Optional: clear dropped files when done
     fn clear_dropped_files(&mut self) {
         self.dropped_files.clear();
-    }
-
-    fn process_new_file(&self, file: egui::DroppedFile) {
-        if let Some(bytes) = &file.bytes {
-            // Implement your file processing logic here
-            log::debug!("File name: {}, size: {} bytes", file.name, bytes.len());
-        } else {
-            log::debug!("File '{}' has no bytes available yet.", file.name);
-        }
     }
 
     fn handle_image_info(&mut self, ui: &mut egui::Ui) {
@@ -195,7 +223,6 @@ impl TemplateApp {
     }
 
     fn handle_load_messages(&mut self, ctx: &egui::Context) {
-
         // Read messages from the load thread
         if let Some(receiver) = &mut self.load_receiver {
 
@@ -218,6 +245,15 @@ impl TemplateApp {
                                 ctx.request_repaint();
                                 // Return to reactive mode
                                 self.run_mode = RunMode::Reactive;
+
+                                match self.viz_state.render_visualization(self.disk_image.as_mut(), 0) {
+                                    Ok(_) => {
+                                        log::info!("Visualization rendered successfully!");
+                                    }
+                                    Err(e) => {
+                                        log::error!("Error rendering visualization: {:?}", e);
+                                    }
+                                }
                             }
                             ThreadLoadStatus::Error(e) => {
                                 log::error!("Error loading disk image: {:?}", e);
@@ -306,8 +342,8 @@ impl TemplateApp {
                 let bytes_vec = bytes.to_vec();
                 let mut cursor = std::io::Cursor::new(bytes_vec);
 
-                let mut sender1 = self.load_sender.as_mut().unwrap().clone();
-                let mut sender2 = self.load_sender.as_mut().unwrap().clone();
+                let sender1 = self.load_sender.as_mut().unwrap().clone();
+                let sender2 = self.load_sender.as_mut().unwrap().clone();
 
                 // Remove the old disk image
                 self.disk_image = None;
@@ -349,7 +385,7 @@ impl TemplateApp {
                 }
 
                 // Clear the dropped file after processing
-                self.dropped_files.clear();
+                self.clear_dropped_files();
             } else {
                 // Request a repaint until the file's bytes are loaded
                 ctx.request_repaint();
@@ -357,8 +393,6 @@ impl TemplateApp {
         }
 
     }
-
-
 }
 
 

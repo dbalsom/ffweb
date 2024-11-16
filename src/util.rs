@@ -25,12 +25,17 @@
     --------------------------------------------------------------------------
 */
 
-#![warn(clippy::all, rust_2018_idioms)]
+use eframe::wasm_bindgen::prelude::wasm_bindgen;
 
-mod app;
-pub(crate) mod worker;
-pub(crate) mod util;
-pub(crate) mod viz;
-pub(crate) mod widgets;
+#[wasm_bindgen(module = "/assets/base_url.js")]
+extern "C" {
+    fn getBaseURL() -> String;
+}
 
-pub use app::App;
+pub(crate) fn construct_full_url(relative_path: &str) -> String {
+    //unsafe {
+        let base_url = getBaseURL(); // Get the base URL from JS
+        format!("{}/{}", base_url.trim_end_matches('/'), relative_path.trim_start_matches('/'))
+    //}
+}
+

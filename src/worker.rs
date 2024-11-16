@@ -1,5 +1,31 @@
+/*
+    FluxFox
+    https://github.com/dbalsom/fluxfox
 
-// Worker code from
+    Copyright 2024 Daniel Balsom
+
+    Permission is hereby granted, free of charge, to any person obtaining a
+    copy of this software and associated documentation files (the “Software”),
+    to deal in the Software without restriction, including without limitation
+    the rights to use, copy, modify, merge, publish, distribute, sublicense,
+    and/or sell copies of the Software, and to permit persons to whom the
+    Software is furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in
+    all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+    FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+    DEALINGS IN THE SOFTWARE.
+
+    --------------------------------------------------------------------------
+*/
+
+// Worker code adapted from
 // https://www.tweag.io/blog/2022-11-24-wasm-threads-and-messages/
 
 use eframe::wasm_bindgen;
@@ -7,12 +33,10 @@ use eframe::wasm_bindgen::{JsCast, JsValue};
 use eframe::wasm_bindgen::closure::Closure;
 use eframe::wasm_bindgen::prelude::wasm_bindgen;
 
-use std::sync::mpsc;
-use crate::app::ThreadLoadStatus;
-
 // Spawn a worker and communicate with it.
+#[allow (dead_code)]
 pub(crate) fn spawn_worker() {
-    let mut worker_opts = web_sys::WorkerOptions::new();
+    let worker_opts = web_sys::WorkerOptions::new();
     worker_opts.set_type(web_sys::WorkerType::Module);
     let worker = match web_sys::Worker::new_with_options("./worker.js", &worker_opts) {
         Ok(worker) => worker,
@@ -44,8 +68,9 @@ pub(crate) fn spawn_worker() {
 }
 
 // Spawn a worker and communicate with it.
-pub(crate) fn spawn_loading_worker(bytes: &[u8], sender: mpsc::SyncSender<ThreadLoadStatus>) {
-    let mut worker_opts = web_sys::WorkerOptions::new();
+#[allow (dead_code)]
+pub(crate) fn spawn_loading_worker(bytes: &[u8]) {
+    let worker_opts = web_sys::WorkerOptions::new();
     worker_opts.set_type(web_sys::WorkerType::Module);
     let worker = match web_sys::Worker::new_with_options("./load_worker.js", &worker_opts) {
         Ok(worker) => worker,
@@ -86,7 +111,7 @@ pub(crate) fn spawn_loading_worker(bytes: &[u8], sender: mpsc::SyncSender<Thread
 
 // Spawn a worker and communicate with it.
 pub(crate) fn spawn_closure_worker(f: impl FnOnce() + Send + 'static) -> Result<web_sys::Worker, JsValue> {
-    let mut worker_opts = web_sys::WorkerOptions::new();
+    let worker_opts = web_sys::WorkerOptions::new();
     worker_opts.set_type(web_sys::WorkerType::Module);
     let worker = web_sys::Worker::new_with_options("./worker.js", &worker_opts)?;
 

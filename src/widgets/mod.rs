@@ -25,12 +25,4 @@
     --------------------------------------------------------------------------
 */
 
-#![warn(clippy::all, rust_2018_idioms)]
-
-mod app;
-pub(crate) mod worker;
-pub(crate) mod util;
-pub(crate) mod viz;
-pub(crate) mod widgets;
-
-pub use app::App;
+pub mod texture;
